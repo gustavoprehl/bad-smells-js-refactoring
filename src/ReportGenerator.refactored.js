@@ -6,6 +6,46 @@ const PRIORITY_THRESHOLD = 1000;
 // Valor máximo de item visível para usuários comuns
 const USER_VALUE_LIMIT = 500;
 
+class CsvFormatter {
+  header() {
+    return 'ID,NOME,VALOR,USUARIO\n';
+  }
+
+  row(item, user) {
+    return `${item.id},${item.name},${item.value},${user.name}\n`;
+  }
+
+  footer(total) {
+    return `\nTotal,,\n${total},,\n`;
+  }
+}
+
+class HtmlFormatter {
+  header(user) {
+    return (
+      '<html><body>\n' +
+      '<h1>Relatório</h1>\n' +
+      `<h2>Usuário: ${user.name}</h2>\n` +
+      '<table>\n' +
+      '<tr><th>ID</th><th>Nome</th><th>Valor</th></tr>\n'
+    );
+  }
+
+  row(item, user, highlighted) {
+    const style = highlighted ? ' style="font-weight:bold;"' : '';
+    return `<tr${style}><td>${item.id}</td><td>${item.name}</td><td>${item.value}</td></tr>\n`;
+  }
+
+  footer(total) {
+    return '</table>\n' + `<h3>Total: ${total}</h3>\n` + '</body></html>\n';
+  }
+}
+
+const FORMATTERS = new Map([
+  [REPORT_FORMATS.CSV, new CsvFormatter()],
+  [REPORT_FORMATS.HTML, new HtmlFormatter()],
+]);
+
 export class ReportGenerator {
   constructor(database) {
     this.db = database;
@@ -17,21 +57,14 @@ export class ReportGenerator {
    * - Users comuns só veem itens com valor <= 500.
    */
   generateReport(reportType, user, items) {
-    let report = '';
-    let total = 0;
-
-    // --- Seção do Cabeçalho ---
-    if (reportType === REPORT_FORMATS.CSV) {
-      report += 'ID,NOME,VALOR,USUARIO\n';
-    } else if (reportType === REPORT_FORMATS.HTML) {
-      report += '<html><body>\n';
-      report += '<h1>Relatório</h1>\n';
-      report += `<h2>Usuário: ${user.name}</h2>\n`;
-      report += '<table>\n';
-      report += '<tr><th>ID</th><th>Nome</th><th>Valor</th></tr>\n';
+    const formatter = FORMATTERS.get(reportType);
+    if (!formatter) {
+      return '';
     }
 
-    // --- Seção do Corpo (Alta Complexidade) ---
+    let report = formatter.header(user);
+    let total = 0;
+
     for (const item of items) {
       if (user.role === ROLES.ADMIN) {
         // Admins veem todos os itens
@@ -39,39 +72,16 @@ export class ReportGenerator {
           // Lógica bônus para admins
           item.priority = true;
         }
-
-        if (reportType === REPORT_FORMATS.CSV) {
-          report += `${item.id},${item.name},${item.value},${user.name}\n`;
-          total += item.value;
-        } else if (reportType === REPORT_FORMATS.HTML) {
-          const style = item.priority ? 'style="font-weight:bold;"' : '';
-          report += `<tr ${style}><td>${item.id}</td><td>${item.name}</td><td>${item.value}</td></tr>\n`;
-          total += item.value;
-        }
-      } else if (user.role === ROLES.USER) {
+        report += formatter.row(item, user, item.priority);
+        total += item.value;
+      } else if (user.role === ROLES.USER && item.value <= USER_VALUE_LIMIT) {
         // Users comuns só veem itens de valor baixo
-        if (item.value <= USER_VALUE_LIMIT) {
-          if (reportType === REPORT_FORMATS.CSV) {
-            report += `${item.id},${item.name},${item.value},${user.name}\n`;
-            total += item.value;
-          } else if (reportType === REPORT_FORMATS.HTML) {
-            report += `<tr><td>${item.id}</td><td>${item.name}</td><td>${item.value}</td></tr>\n`;
-            total += item.value;
-          }
-        }
+        report += formatter.row(item, user, false);
+        total += item.value;
       }
     }
 
-    // --- Seção do Rodapé ---
-    if (reportType === REPORT_FORMATS.CSV) {
-      report += '\nTotal,,\n';
-      report += `${total},,\n`;
-    } else if (reportType === REPORT_FORMATS.HTML) {
-      report += '</table>\n';
-      report += `<h3>Total: ${total}</h3>\n`;
-      report += '</body></html>\n';
-    }
-
+    report += formatter.footer(total);
     return report.trim();
   }
 }
