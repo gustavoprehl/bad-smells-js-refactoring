@@ -46,6 +46,32 @@ const FORMATTERS = new Map([
   [REPORT_FORMATS.HTML, new HtmlFormatter()],
 ]);
 
+// Regras de visibilidade e destaque de itens para cada perfil de usuário
+const ROLE_POLICIES = new Map([
+  [
+    ROLES.ADMIN,
+    {
+      canView: () => true,
+      isHighlighted: (item) => item.value > PRIORITY_THRESHOLD,
+    },
+  ],
+  [
+    ROLES.USER,
+    {
+      canView: (item) => item.value <= USER_VALUE_LIMIT,
+      isHighlighted: () => false,
+    },
+  ],
+]);
+
+// Perfis desconhecidos não veem nenhum item
+const NO_ACCESS_POLICY = {
+  canView: () => false,
+  isHighlighted: () => false,
+};
+
+const sumValues = (items) => items.reduce((total, item) => total + item.value, 0);
+
 export class ReportGenerator {
   constructor(database) {
     this.db = database;
@@ -62,26 +88,20 @@ export class ReportGenerator {
       return '';
     }
 
-    let report = formatter.header(user);
-    let total = 0;
+    const policy = ROLE_POLICIES.get(user.role) ?? NO_ACCESS_POLICY;
+    const visibleItems = items.filter((item) => policy.canView(item));
 
-    for (const item of items) {
-      if (user.role === ROLES.ADMIN) {
-        // Admins veem todos os itens
-        if (item.value > PRIORITY_THRESHOLD) {
-          // Lógica bônus para admins
-          item.priority = true;
-        }
-        report += formatter.row(item, user, item.priority);
-        total += item.value;
-      } else if (user.role === ROLES.USER && item.value <= USER_VALUE_LIMIT) {
-        // Users comuns só veem itens de valor baixo
-        report += formatter.row(item, user, false);
-        total += item.value;
-      }
-    }
+    const report =
+      formatter.header(user) +
+      this.buildRows(formatter, policy, user, visibleItems) +
+      formatter.footer(sumValues(visibleItems));
 
-    report += formatter.footer(total);
     return report.trim();
+  }
+
+  buildRows(formatter, policy, user, items) {
+    return items
+      .map((item) => formatter.row(item, user, policy.isHighlighted(item)))
+      .join('');
   }
 }
